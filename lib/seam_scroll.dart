@@ -2,3 +2,5 @@ library;
 
 export 'src/model/seam_anchor.dart';
 export 'src/model/seam_direction.dart';
+export 'src/physics/clamping_seam_physics.dart';
+export 'src/physics/seam_physics.dart';
