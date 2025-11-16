@@ -6,6 +6,8 @@ import '../physics/clamping_seam_physics.dart';
 import '../physics/seam_physics.dart';
 import '../scroll/seam_scroll_controller.dart';
 
+const double _kIgnorePointerBelowRatio = 0.05;
+
 typedef SeamSheetBuilder =
     Widget Function(BuildContext context, ScrollController scrollController);
 
@@ -199,7 +201,19 @@ class _SeamSheetState extends State<SeamSheet>
           ),
         );
 
-        final body = Expanded(child: widget.sheetBuilder(context, _scrollController));
+        final body = Expanded(
+          child: AnimatedBuilder(
+            animation: widget.controller,
+            builder: (_, child) {
+              final hidden = widget.controller.ratio < _kIgnorePointerBelowRatio;
+              return ExcludeSemantics(
+                excluding: hidden,
+                child: IgnorePointer(ignoring: hidden, child: child),
+              );
+            },
+            child: widget.sheetBuilder(context, _scrollController),
+          ),
+        );
         final children = fromBottom ? [handle, body] : [body, handle];
 
         return Align(
