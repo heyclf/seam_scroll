@@ -78,7 +78,10 @@ class SeamScrollPosition extends ScrollPositionWithSingleContext {
       return;
     }
 
-    controller.onBallisticHandoff?.call(velocity);
+    final sheetVelocity = direction == SeamDirection.fromBottom
+        ? velocity
+        : -velocity;
+    controller.onBallisticHandoff?.call(sheetVelocity);
     super.goBallistic(0);
   }
 }
