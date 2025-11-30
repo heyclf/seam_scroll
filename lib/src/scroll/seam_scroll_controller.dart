@@ -20,7 +20,7 @@ class SeamScrollController extends ScrollController {
     ScrollPosition? oldPosition,
   ) {
     return SeamScrollPosition(
-      physics: physics,
+      physics: const ClampingScrollPhysics().applyTo(physics),
       context: context,
       controller: controller,
       direction: direction,
