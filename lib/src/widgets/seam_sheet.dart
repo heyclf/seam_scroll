@@ -242,7 +242,7 @@ class _SeamSheetState extends State<SeamSheet>
         height: 4,
         margin: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.3),
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
           borderRadius: BorderRadius.circular(2),
         ),
       ),
