@@ -1,6 +1,9 @@
 name: seam_scroll
-description: "sheet 跟內層 scrollable 的物理協同 primitive。"
+description: "Flutter scroll 協同 primitive：snap anchor + velocity 接力，原生感的 DraggableScrollableSheet / NestedScrollView 替代品。"
 version: 0.0.1
+homepage: https://github.com/heyclf/seam_scroll
+repository: https://github.com/heyclf/seam_scroll
+issue_tracker: https://github.com/heyclf/seam_scroll/issues
 
 environment:
   sdk: ^3.11.4
