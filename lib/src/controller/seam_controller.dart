@@ -113,6 +113,7 @@ class SeamController extends ChangeNotifier {
   ///
   /// velocity 單位 logical pixels / 秒，sign 跟 scrollable 同（正值代表內容
   /// 往下捲）。
+  @internal
   ValueSetter<double>? onBallisticHandoff;
 
   /// 外部呼 [animateToAnchor] / [collapse] / [expand] 時 controller 透過這個
@@ -120,6 +121,7 @@ class SeamController extends ChangeNotifier {
   ///
   /// **package 內部使用**。沒 host 註冊時退化成同步 [setAnchorIndex]，這樣
   /// headless 情境（測試、沒掛 [SeamSheet] 的 overlay）也能改 state。
+  @internal
   ValueSetter<int>? onAnimateRequested;
 
   /// 請 host 把 surface 動畫到 `anchors[index]`。
