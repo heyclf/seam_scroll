@@ -1,0 +1,9 @@
+# Files excluded from pub publish (in addition to .gitignore)
+CLAUDE.md
+AGENTS.md
+.claude/
+tool-local/
+docs/
+.idea/
+*.iml
+.vscode/

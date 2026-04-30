@@ -29,3 +29,15 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# AI agent config — internal development regime, not for distribution
+CLAUDE.md
+AGENTS.md
+.claude/
+.omc/
+tool-local/
+docs/
+
+
+# TDD ledger (per-session, not shared)
+local-data/
