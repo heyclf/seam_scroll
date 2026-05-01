@@ -1,4 +1,15 @@
-## 0.1.0
+## 0.1.1
+
+* 修 `.pubignore` — `build/` / `.dart_tool/` / `local-data/` / `.omc/` 等內部
+  artifacts 不再進 publish package（v0.1.0 因 `.pubignore` 缺漏意外把 43MB
+  flutter test build cache 跟 internal TDD ledger 包進去，已 retract）。
+* 修 README 安裝段落 — 從 GitHub git ref 改成 `dart pub add seam_scroll`。
+
+## 0.1.0 — retracted
+
+第一版公開 release。把過去一年多 internal 開發的 sheet ↔ scroll 協同
+primitive 整理成 OSS package。**因 `.pubignore` 缺漏 v0.1.0 archive 包了
+build/ + local-data/ 內部 artifacts，已 retract**，請改用 0.1.1。
 
 第一版公開 release。把過去一年多 internal 開發的 sheet ↔ scroll 協同
 primitive 整理成 OSS package。

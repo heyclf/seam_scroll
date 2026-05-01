@@ -29,15 +29,12 @@ Flutter 已經有 `DraggableScrollableSheet` 跟 `NestedScrollView`，簡單情�
 
 ## 安裝
 
-還沒 publish 到 pub.dev，先從 GitHub 拉：
-
 ```yaml
 dependencies:
-  seam_scroll:
-    git:
-      url: https://github.com/heyclf/seam_scroll
-      ref: main
+  seam_scroll: ^0.1.1
 ```
+
+或 `dart pub add seam_scroll`。
 
 ## 最小範例
 

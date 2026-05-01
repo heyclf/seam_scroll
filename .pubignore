@@ -1,9 +1,23 @@
-# Files excluded from pub publish (in addition to .gitignore)
+# pub.dev 用 .pubignore 取代 .gitignore（兩者並存時 .gitignore 被忽略）
+# 所以這裡要把 .gitignore 規則 + AI agent 規則全列一遍。
+
+# Build artifacts
+build/
+.dart_tool/
+.flutter-plugins-dependencies
+**/doc/api/
+/coverage/
+
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# AI agent / internal dev artifacts (NEVER published)
 CLAUDE.md
 AGENTS.md
 .claude/
+.omc/
 tool-local/
 docs/
-.idea/
-*.iml
-.vscode/
+local-data/
