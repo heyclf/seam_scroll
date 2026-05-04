@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../controller/seam_controller.dart';
@@ -45,6 +47,10 @@ class SeamSheet extends StatefulWidget {
     this.handleHeight = 48,
     this.handle,
     this.onHandleTap,
+    this.onDragStart,
+    this.onDragEnd,
+    this.borderRadius,
+    this.clipBehavior = Clip.antiAlias,
   });
 
   /// sheet 的狀態 / anchors。host widget **不**負責 dispose；caller 自己管理
@@ -74,6 +80,29 @@ class SeamSheet extends StatefulWidget {
   /// handle 區的 tap callback。null 時 default 行為是用動畫切到下一個 anchor
   /// （走完一輪繞回第一個）。要關閉 tap 行為傳 `() {}` 即可。
   final VoidCallback? onHandleTap;
+
+  /// 真實 drag 開始時觸發。zero-movement 的 arena sweep（純 tap 的
+  /// down→up）不會觸發；可放心做外層 animation pause、狀態同步等
+  /// side-effect。
+  final VoidCallback? onDragStart;
+
+  /// 真實 drag 結束時觸發；同樣 arena sweep 不觸發。對應 [onDragStart] 收尾。
+  final VoidCallback? onDragEnd;
+
+  /// sheet 外觀 [Material] 的 borderRadius。預設 null（不裁圓角）。
+  ///
+  /// 例：
+  /// ```dart
+  /// SeamSheet(
+  ///   borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+  ///   ...
+  /// )
+  /// ```
+  final BorderRadius? borderRadius;
+
+  /// 對應 [Material.clipBehavior]。預設 [Clip.antiAlias]，搭配 [borderRadius]
+  /// 把 child overflow 裁掉。設 [Clip.none] 就不裁。
+  final Clip clipBehavior;
 
   @override
   State<SeamSheet> createState() => _SeamSheetState();
@@ -222,7 +251,11 @@ class _SeamSheetState extends State<SeamSheet>
     // 手指方向 → sheet pixels：
     //   fromBottom：手指往下 (`d.delta.dy > 0`) 縮小 sheet，所以用減。
     //   fromTop：手指往下 (`d.delta.dy > 0`) 撐大 sheet，所以用加。
+    // onDragStart 在第一個非零 delta 才 fire — arena sweep（tap 也會觸發 drag*）
+    // 不算真實 drag，避開 host 看到 phantom drag-start。
+    final wasDragged = _draggedSinceDown;
     _draggedSinceDown = true;
+    if (!wasDragged) widget.onDragStart?.call();
     final dy = d.delta.dy;
     final delta = widget.direction == SeamDirection.fromBottom ? -dy : dy;
     widget.controller.jumpTo(widget.controller.pixels + delta);
@@ -243,6 +276,7 @@ class _SeamSheetState extends State<SeamSheet>
     // 零位移的 arena sweep（tester.tap 之類）也會 fire drag-end with velocity=0。
     // 沒這個 guard 會 clobber 掉 tap 觸發中的動畫。
     if (!_draggedSinceDown) return;
+    widget.onDragEnd?.call();
     // SeamPhysics 的 contract 是「正 velocity 展開、負 velocity 收合」。
     // 把 gesture 的 primaryVelocity 換到 sheet 軸：
     //   fromBottom：手指往下 (primaryVelocity > 0) 收合 → 翻 sign。
@@ -306,21 +340,45 @@ class _SeamSheetState extends State<SeamSheet>
 
         // fromBottom：handle 在頂、list 在下；fromTop：handle 在底、list 在上。
         final children = fromBottom ? [handle, body] : [body, handle];
-
-        // 外層 AnimatedBuilder 只 rebuild SizedBox.height；handle / body /
-        // Material / Column 整段透過 child: 一次建好後 cached，不 per-frame
-        // 重建。
+        // 外層 frame 仍完全尊重 controller.pixels，保留 jumpTo(0) 合法語意。
+        // 內層 Material 至少用 handleHeight layout，避免 Column 在
+        // rawHeight < handleHeight 時 overflow；超出的部分由外層 ClipRect 裁掉。
         return Align(
           alignment: alignment,
           child: AnimatedBuilder(
             animation: widget.controller,
-            builder: (_, child) => SizedBox(
-              width: double.infinity,
-              height: widget.controller.pixels,
-              child: child,
-            ),
+            builder: (_, child) {
+              final rawHeight = widget.controller.pixels
+                  .clamp(0.0, viewport)
+                  .toDouble();
+              final layoutHeight = math.max(rawHeight, widget.handleHeight);
+              return SizedBox(
+                width: double.infinity,
+                height: rawHeight,
+                child: ClipRect(
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: fromBottom ? 0 : null,
+                        bottom: fromBottom ? null : 0,
+                        height: layoutHeight,
+                        child: child!,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
             child: Material(
               color: Theme.of(context).colorScheme.surface,
+              borderRadius: widget.borderRadius,
+              clipBehavior: widget.borderRadius == null
+                  ? Clip.none
+                  : widget.clipBehavior,
               child: Column(children: children),
             ),
           ),
