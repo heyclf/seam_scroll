@@ -7,8 +7,8 @@ import '../model/seam_direction.dart';
 /// 把 boundary overscroll、boundary 釋放 velocity 都轉交給 [SeamController]
 /// 的自訂 [ScrollPosition]。
 ///
-/// 內層 scrollable 在 boundary（[SeamDirection.fromBottom] 看頂端、
-/// [SeamDirection.fromTop] 看底端）時：
+/// 內層 scrollable 在 boundary（[SeamDirection.fromBottom] 看 visual top、
+/// [SeamDirection.fromTop] 看 visual bottom）時：
 /// * 任何 overscroll 方向的 drag delta 都進到 sheet 的 [SeamController.pixels]
 ///   而不是被 clamp；
 /// * release 瞬間 ballistic velocity 還是 overscroll 方向時，velocity 會 forward
@@ -19,6 +19,22 @@ import '../model/seam_direction.dart';
 ///
 /// 一般 caller 不會直接 instantiate — 走 [SeamScrollController.createScrollPosition]
 /// 由 framework 建立。
+///
+/// ## 文件化 contract（PR 1）
+///
+/// 1. [SeamController.ratio] 是 raw `pixels / viewportExtent`，不是
+///    anchor-normalized progress。0..1 線性映射 viewport 高度，跟 anchor 數量
+///    或位置無關。
+///
+/// 2. collapse edge = sheet handle 視覺所在那一邊的 list boundary，依
+///    [ScrollContext.axisDirection] 解 reverse-axis：
+///    * fromBottom: handle 在 sheet 頂端 → collapse edge = list 視覺頂端
+///      （非 reverse 是 minScrollExtent；reverse 是 maxScrollExtent）。
+///    * fromTop: handle 在 sheet 底端 → collapse edge = list 視覺底端
+///      （非 reverse 是 maxScrollExtent；reverse 是 minScrollExtent）。
+///
+/// 3. 同手勢內 reverse-delta 立即解 collapse latch，無 threshold / slop —
+///    用戶反向滑就立刻離開 sticky 模式。
 @internal
 class SeamScrollPosition extends ScrollPositionWithSingleContext {
   /// 建立綁在 [controller] 上的 position。
@@ -47,10 +63,91 @@ class SeamScrollPosition extends ScrollPositionWithSingleContext {
   /// 後設 true，整段 drag 持續吃 collapse 方向的 delta，不再被 sheet 收合導致
   /// `maxScrollExtent` 變動 flip 掉 boundary 判斷。
   ///
-  /// 跟「drag-start 是否在 boundary」不同：drag 起點 atTop 但首個 delta 不滿足
-  /// scenario A（例如 finger UP at top 是 list scroll forward），latch 不該觸發；
+  /// 跟「drag-start 是否在 boundary」不同：drag 起點 atCollapseEdge 但首個 delta
+  /// 不滿足 scenario A（例如 finger 反向 = list scroll forward），latch 不該觸發；
   /// 反向 drag 才不會被誤鎖。
   bool _scenarioACollapseActive = false;
+
+  /// list 的視覺軸是否被 reverse=true 翻轉。
+  ///
+  /// vertical: [AxisDirection.down] 是 forward (非 reverse)、[AxisDirection.up]
+  /// 是 reverse。horizontal 鏡像處理但 sheet 目前只支援 vertical 配置，這裡
+  /// 也涵蓋以備未來擴展。
+  bool get _axisIsReversedInViewport {
+    switch (context.axisDirection) {
+      case AxisDirection.down:
+      case AxisDirection.right:
+        return false;
+      case AxisDirection.up:
+      case AxisDirection.left:
+        return true;
+    }
+  }
+
+  /// `pixels` 是否落在 list 視覺頂端（reverse=true 時是 maxScrollExtent，
+  /// 非 reverse 是 minScrollExtent）。
+  bool get _atVisualTop => _axisIsReversedInViewport
+      ? pixels >= maxScrollExtent - _epsilon
+      : pixels <= minScrollExtent + _epsilon;
+
+  /// `pixels` 是否落在 list 視覺底端。
+  bool get _atVisualBottom => _axisIsReversedInViewport
+      ? pixels <= minScrollExtent + _epsilon
+      : pixels >= maxScrollExtent - _epsilon;
+
+  /// 是否落在 collapse edge — fromBottom 看 visual top、fromTop 看 visual bottom。
+  bool get _atCollapseEdge => switch (direction) {
+    SeamDirection.fromBottom => _atVisualTop,
+    SeamDirection.fromTop => _atVisualBottom,
+  };
+
+  /// 把 Flutter 已依 reverse-axis 翻好 sign 的 user offset delta 轉成 sheet 軸
+  /// 上的位移：sheetDelta>0 = 撐大，sheetDelta<0 = 收合。
+  ///
+  /// fromBottom: 非 reverse 時 finger UP → list delta<0、sheet 撐大（sheetDelta>0），
+  /// 所以 `sheetDelta = -delta`；reverse=true 翻 sign，`sheetDelta = +delta`。
+  /// fromTop 鏡像對稱。
+  double _sheetDeltaForUserOffset(double delta) {
+    final reversed = _axisIsReversedInViewport;
+    switch (direction) {
+      case SeamDirection.fromBottom:
+        return reversed ? delta : -delta;
+      case SeamDirection.fromTop:
+        return reversed ? -delta : delta;
+    }
+  }
+
+  /// goBallistic 收到的 scroll-axis velocity 換算到 sheet 軸。signs：
+  /// >0 撐大、<0 收合。
+  ///
+  /// Flutter 內部 `velocity = -primaryVelocity * (reversed ? -1 : 1)`，比 delta
+  /// 多翻一次 sign（delta 沒有那個前置 `-`），所以這裡的翻轉跟 [_sheetDeltaForUserOffset]
+  /// 是相反的。non-reverse fromBottom：finger UP fling → `velocity>0` → sheet
+  /// 撐大；reverse fromBottom：finger UP fling → `velocity<0` → 也要撐大，
+  /// 所以反 sign。
+  double _sheetVelocityForScrollVelocity(double velocity) {
+    final reversed = _axisIsReversedInViewport;
+    switch (direction) {
+      case SeamDirection.fromBottom:
+        return reversed ? -velocity : velocity;
+      case SeamDirection.fromTop:
+        return reversed ? velocity : -velocity;
+    }
+  }
+
+  /// 同手勢內出現反向 collapse 方向（sheetDelta>0 = expand 方向）的 delta 時，
+  /// 立即解鎖 [_scenarioACollapseActive]，無 threshold / slop。
+  ///
+  /// 不解的話會踩到「下拉到頂 latch ON → 不放手反向滑（list 離開 boundary）→
+  /// 再下拉」時 sheet 被誤收合的 bug — list 已不在 boundary，但 sticky latch
+  /// 仍讓 scenario A 吃 delta。
+  void _unlockScenarioACollapseLatchIfReversed(double sheetDelta) {
+    if (!_scenarioACollapseActive) return;
+    // collapse 方向是 sheetDelta<0；反向 = sheetDelta>0 即解。
+    if (sheetDelta > 0) {
+      _scenarioACollapseActive = false;
+    }
+  }
 
   @override
   void applyUserOffset(double delta) {
@@ -59,49 +156,29 @@ class SeamScrollPosition extends ScrollPositionWithSingleContext {
       return;
     }
 
+    final sheetDelta = _sheetDeltaForUserOffset(delta);
+    _unlockScenarioACollapseLatchIfReversed(sheetDelta);
     _userOffsetSinceBallistic = true;
 
-    // `ScrollDragController.update` 把 `primaryDelta` 原封不動傳進來，
-    // `super.applyUserOffset` 再做 `pixels - delta`。所以正向 delta = 手指
-    // 往下移 = `pixels` 會變小。
     final resolved = controller.resolvedAnchors();
     final maxAnchorPixels = resolved.isEmpty ? 0.0 : resolved.last;
     final sheetAtMax = controller.pixels >= maxAnchorPixels - _epsilon;
 
-    switch (direction) {
-      case SeamDirection.fromBottom:
-        // 頂端 overscroll：finger 往下推到頂之外，把 delta 餵 sheet 收合。
-        // sheet 收合會讓 body viewport 縮、`maxScrollExtent` 變大；動態 atTop
-        // 在 fromBottom 上其實穩定（pixels 鎖在 minScrollExtent=0），但保留
-        // sticky 邏輯讓 fromTop 鏡像對稱、未來 layout 假設變了也不會破。
-        final atTop = pixels <= minScrollExtent + _epsilon;
-        if ((atTop || _scenarioACollapseActive) && delta > 0) {
-          _scenarioACollapseActive = true;
-          controller.jumpTo(controller.pixels - delta);
-          return;
-        }
-        // sheet 還沒撐到 max：finger 往上拖優先撐 sheet，超過 max anchor 後
-        // delta 才落回 super 讓 list scroll 接手。
-        if (delta < 0 && !sheetAtMax) {
-          controller.jumpTo(controller.pixels - delta);
-          return;
-        }
-      case SeamDirection.fromTop:
-        // 底端 overscroll：finger 往上推到底之外，把 delta 餵 sheet 收合。
-        // 動態 atBottom 在 fromTop 不穩定 — sheet 收合 → maxScrollExtent 增大
-        // → atBottom flip false。sticky `_scenarioACollapseActive` 鎖住整段
-        // drag 不被 layout 變動破。
-        final atBottom = pixels >= maxScrollExtent - _epsilon;
-        if ((atBottom || _scenarioACollapseActive) && delta < 0) {
-          _scenarioACollapseActive = true;
-          controller.jumpTo(controller.pixels + delta);
-          return;
-        }
-        // sheet 還沒撐滿：finger 往下拖優先撐 sheet。
-        if (delta > 0 && !sheetAtMax) {
-          controller.jumpTo(controller.pixels + delta);
-          return;
-        }
+    // Scenario A: 在 collapse edge 收合 sheet。
+    // 拿到 collapse 方向（sheetDelta<0）+ list 真的在 collapse edge（或 latch
+    // 已 ON），把 delta 餵 sheet 收合。latch 鎖住整段 drag，避免 sheet 收合
+    // 改動 viewport 後 _atCollapseEdge flip 掉判斷。
+    if ((_atCollapseEdge || _scenarioACollapseActive) && sheetDelta < 0) {
+      _scenarioACollapseActive = true;
+      controller.jumpTo(controller.pixels + sheetDelta);
+      return;
+    }
+
+    // Scenario C: sheet 還沒撐到 max 時，expand 方向（sheetDelta>0）的 delta
+    // 優先撐 sheet，超過 max 後才落回 super 讓 list scroll 接手。
+    if (sheetDelta > 0 && !sheetAtMax) {
+      controller.jumpTo(controller.pixels + sheetDelta);
+      return;
     }
 
     super.applyUserOffset(delta);
@@ -134,11 +211,9 @@ class SeamScrollPosition extends ScrollPositionWithSingleContext {
 
     // sheet 在 anchor 之間 — drag 過程中 scenario A/C 把 delta 餵 sheet，
     // 鬆手必須 forward velocity 給 sheet 自己 settle，不然 super.goBallistic
-    // 不認 anchor，sheet 卡在 drag 結束的位置。fromTop axis 跟 list axis 反向，
-    // 翻 sign 才符合 sheet「正展開、負收合」contract。
-    final sheetVelocity = direction == SeamDirection.fromBottom
-        ? velocity
-        : -velocity;
+    // 不認 anchor，sheet 卡在 drag 結束的位置。axis-aware 翻 sign 才符合
+    // sheet「正展開、負收合」contract（含 reverse=true ListView）。
+    final sheetVelocity = _sheetVelocityForScrollVelocity(velocity);
     controller.onBallisticHandoff?.call(sheetVelocity);
     super.goBallistic(0);
   }
