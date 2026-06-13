@@ -1,3 +1,14 @@
+## 0.2.0
+
+* `SeamSheet` host 整合 API：新增 `onDragStart` / `onDragEnd` drag callbacks、
+  `borderRadius` 跟 `clipBehavior`（預設 `Clip.antiAlias`）。host 端可在使用者
+  拖曳 sheet 時收到 callback（例如暫停地圖 camera 動畫），並自訂圓角 / 裁切。
+* `SeamSheet` 防禦性 layout — sheet 高度夾在 `handleHeight` 以上，退化情境
+  （viewport 太小 / collapsed 比 handle 還矮）不再產生負高或 handle 被裁掉。
+* `SeamScrollPosition` scenario A latch 精準化：同一手勢內往反方向拖可即時
+  解鎖 latch，且改為 axisDirection-aware，正確支援 reverse-axis scrollable
+  的 boundary handoff。
+
 ## 0.1.1
 
 * 修 `.pubignore` — `build/` / `.dart_tool/` / `local-data/` / `.omc/` 等內部
